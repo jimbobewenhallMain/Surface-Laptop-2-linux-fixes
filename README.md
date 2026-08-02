@@ -74,22 +74,8 @@ sudo bash scripts/setup-kde-login.sh      # verifies face auth, then patches PAM
 
 ### Ambient Light Sensor
 
-Installed by `install.sh`; run it alone with:
-
-```
-sudo bash scripts/als-enable.sh --with-auto-brightness   # driver + iio-sensor-proxy
-sudo bash scripts/als-diagnose.sh                        # read-only check
-monitor-sensor                                           # live lux, cover to test
-```
-
-- Firmware exposes the chip as ACPI `LSD9033` (`\_SB_.PCI0.I2C3.ALSD`),
-  which no in-tree driver matches — so nothing binds and no IIO device
-  appears. The fix is a DKMS build of `isl29018` with that ACPI ID added.
-- Maps to **`isl29023`, not `isl29035`**: register `0x0F` reads `0x00`
-  here, and the isl29035 path aborts with `-ENODEV` when it isn't `0x5`.
-- Auto brightness: **System Settings → Power Management → Adjust screen
-  brightness** (needs `iio-sensor-proxy`).
-- Undo: `sudo bash scripts/als-enable.sh --remove`.
+- Auto brightness: **Adjust screen brightness** requires `iio-sensor-proxy`.
+- Remove module: `sudo bash scripts/als-enable.sh --remove`.
 
 ## What gets installed
 
