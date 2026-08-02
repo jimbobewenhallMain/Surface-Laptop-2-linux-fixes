@@ -64,8 +64,11 @@ sudo bash scripts/setup-kde-login.sh      # verifies face auth, then patches PAM
 
 - **Usage**: pick your user, leave the password box **empty**, press Enter. Failure falls straight through to the password prompt.
 - **Safety**: Test it with a root TTY open (Ctrl+Alt+F3) as a safety net; `sudo bash scripts/setup-kde-login.sh --revert` undoes everything.
-- Full procedure and the password-fallback guarantee: **[LOGIN-SAFETY.md](LOGIN-SAFETY.md)**.
-- **Limitations**: KWallet is unlocked with your login password, so a face login leaves it locked and it will prompt separately; and **full-disk encryption** is unaffected.
+- Full procedure and the password-fallback: **[LOGIN-SAFETY.md](LOGIN-SAFETY.md)**.
+- **Limitations**: 
+  - **Spoofing** is absolutely possible as documented at [authFace](https://github.com/pfalkingham/authFace) "High-quality IR-transparent prints or 3D masks may bypass verification."
+  - **KWallet** is unlocked with your login password, so a face login leaves it locked and it will prompt separately.
+  - **full-disk encryption** is unaffected.
 
 ### RGB Info
 
@@ -97,19 +100,6 @@ the application menu under Settings):
 ```
 surface-camera-settings          # GUI
 surface-camera-settings --check  # report environment, change nothing
-```
-
-Everything is equally adjustable from the command line:
-
-```
-surface-camera-ctl                       # interactive menu
-surface-camera-ctl status                # everything at a glance
-surface-camera-ctl ir-grace 12           # emitter off-delay (seconds)
-surface-camera-ctl rgb-grace 3           # privacy LED off-delay
-surface-camera-ctl ir-exposure 1200      # IR brightness (main knob)
-surface-camera-ctl rgb-controls "ae-enable=false exposure-time=20000"
-surface-camera-ctl face-login on|off
-surface-camera-ctl tune                  # IR exposure sweep
 ```
 
 ## Troubleshooting
