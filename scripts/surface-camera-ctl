@@ -1,0 +1,134 @@
+#!/bin/bash
+#
+# surface-camera-ctl — one place to change every camera setting.
+#
+# Deliberately a single ~200-line shell script: it edits two plain
+# key=value files and restarts services. No daemon, no toolkit, nothing
+# running when you are not using it.
+#
+#   surface-camera-ctl                    interactive menu
+#   surface-camera-ctl status             everything at a glance
+#   surface-camera-ctl ir-grace 12        emitter off delay (seconds)
+#   surface-camera-ctl rgb-grace 3        privacy LED off delay (seconds)
+#   surface-camera-ctl ir-exposure 1200   IR brightness (main knob)
+#   surface-camera-ctl ir-gain 16
+#   surface-camera-ctl ir-rotate 180
+#   surface-camera-ctl rgb-controls "ae-enable=true contrast=1.2"
+#   surface-camera-ctl face-login on|off|status
+#   surface-camera-ctl tune               IR exposure sweep
+#   surface-camera-ctl test               run the diagnostics
+#
+set -u
+IRCONF=/etc/default/camera-ir
+RGBCONF=/etc/default/camera-rgb
+LOGIN_SH=/usr/local/share/surface-camera/setup-kde-login.sh
+[[ -f "$LOGIN_SH" ]] || LOGIN_SH="$(dirname "$(readlink -f "$0")")/setup-kde-login.sh"
+
+need_root() { [[ $EUID -eq 0 ]] || { echo "needs root: sudo $0 $*"; exit 1; }; }
+get() { grep -E "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/#.*//;s/ *$//'; }
+setkv() {   # setkv <file> <key> <value>
+    local f="$1" k="$2" v="$3"
+    [[ -f "$f" ]] || { echo "$k=$v" > "$f"; return; }
+    if grep -qE "^$k=" "$f"; then
+        sed -i "s|^$k=.*|$k=$v|" "$f"
+    else
+        echo "$k=$v" >> "$f"
+    fi
+}
+restart_ir()  { systemctl restart camera-ir 2>/dev/null && echo "  IR daemon restarted"; }
+restart_rgb() {
+    local u="${SUDO_USER:-$USER}"
+    sudo -u "$u" XDG_RUNTIME_DIR="/run/user/$(id -u "$u")" \
+        systemctl --user restart camera-ondemand 2>/dev/null \
+        && echo "  RGB watcher restarted"
+}
+
+cmd_status() {
+    echo "=== IR camera (/dev/video43) ==="
+    if systemctl is-active camera-ir >/dev/null 2>&1; then
+        echo "  daemon      : running"
+    else
+        echo "  daemon      : STOPPED"
+    fi
+    printf "  exposure    : %s\n" "$(get $IRCONF IR_EXPOSURE)"
+    printf "  gain        : %s\n" "$(get $IRCONF IR_GAIN)"
+    printf "  rotation    : %s deg\n" "$(get $IRCONF IR_ROTATE)"
+    printf "  emitter off : %s s after last use\n" "$(get $IRCONF IR_GRACE)"
+    echo
+    echo "=== RGB camera (/dev/video42) ==="
+    local u="${SUDO_USER:-$USER}"
+    if sudo -u "$u" XDG_RUNTIME_DIR="/run/user/$(id -u "$u")" \
+        systemctl --user is-active camera-ondemand >/dev/null 2>&1; then
+        echo "  watcher     : running"
+    else
+        echo "  watcher     : stopped"
+    fi
+    printf "  LED off     : %s s after last use\n" "$(get $RGBCONF RGB_GRACE)"
+    printf "  controls    : %s\n" "$(get $RGBCONF RGB_CONTROLS)"
+    echo
+    echo "=== Face login ==="
+    if [[ -x "$LOGIN_SH" || -f "$LOGIN_SH" ]]; then
+        bash "$LOGIN_SH" --status 2>/dev/null || echo "  (unavailable)"
+    else
+        echo "  not installed (run scripts/setup-kde-login.sh)"
+    fi
+    if command -v face-auth >/dev/null; then
+        local who
+        who=$(ls /var/lib/face-auth 2>/dev/null | tr '\n' ' ')
+        echo "  enrolled    : ${who:-nobody}"
+    fi
+}
+
+case "${1:-menu}" in
+  status)  cmd_status ;;
+
+  ir-grace)     need_root "$@"; setkv $IRCONF IR_GRACE "${2:?seconds}";    echo "emitter now switches off ${2}s after last use"; restart_ir ;;
+  ir-exposure)  need_root "$@"; setkv $IRCONF IR_EXPOSURE "${2:?value}";   echo "IR exposure = $2"; restart_ir ;;
+  ir-gain)      need_root "$@"; setkv $IRCONF IR_GAIN "${2:?value}";       echo "IR gain = $2"; restart_ir ;;
+  ir-rotate)    need_root "$@"; setkv $IRCONF IR_ROTATE "${2:?degrees}";   echo "IR rotation = $2"; restart_ir ;;
+
+  rgb-grace)    need_root "$@"; setkv $RGBCONF RGB_GRACE "${2:?seconds}";  echo "privacy LED now switches off ${2}s after last use"; restart_rgb ;;
+  rgb-controls) need_root "$@"; setkv $RGBCONF RGB_CONTROLS "\"${2:-}\"";  echo "RGB controls = ${2:-<none>}"
+                echo "  (an invalid property falls back to defaults automatically)"; restart_rgb ;;
+
+  face-login)
+      need_root "$@"
+      case "${2:-status}" in
+          on)     bash "$LOGIN_SH" --on ;;
+          off)    bash "$LOGIN_SH" --off ;;
+          status) bash "$LOGIN_SH" --status ;;
+          *)      echo "usage: $0 face-login on|off|status"; exit 1 ;;
+      esac ;;
+
+  tune)  need_root "$@"; bash "$(dirname "$(readlink -f "$0")")/setup-ir.sh" --tune ;;
+  test)  need_root "$@"; bash "$(dirname "$(readlink -f "$0")")/camera-ir-diag.sh" ;;
+
+  menu)
+      while true; do
+          echo
+          cmd_status
+          cat <<'MENU'
+
+  1) IR emitter off-delay        4) IR rotation
+  2) RGB privacy-LED off-delay   5) RGB processing controls
+  3) IR exposure                 6) Toggle face login
+  7) Tune IR exposure (sweep)    8) Run diagnostics
+  q) Quit
+MENU
+          read -rp "  choice: " c
+          case "$c" in
+              1) read -rp "  seconds: " v; sudo "$0" ir-grace "$v" ;;
+              2) read -rp "  seconds: " v; sudo "$0" rgb-grace "$v" ;;
+              3) read -rp "  exposure (150-1704): " v; sudo "$0" ir-exposure "$v" ;;
+              4) read -rp "  degrees (0 or 180): " v; sudo "$0" ir-rotate "$v" ;;
+              5) read -rp "  gst properties: " v; sudo "$0" rgb-controls "$v" ;;
+              6) read -rp "  on or off: " v; sudo "$0" face-login "$v" ;;
+              7) sudo "$0" tune ;;
+              8) sudo "$0" test ;;
+              q|Q) exit 0 ;;
+              *) echo "  ?" ;;
+          esac
+      done ;;
+
+  *) sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac
