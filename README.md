@@ -5,7 +5,8 @@ This entire package was written by Claude AI after lots of back and forth on my 
 
 ## Basics
 
-Both cameras working on the Microsoft Surface Laptop 2 under
+Both cameras and the ambient light sensor working on the Microsoft
+Surface Laptop 2 under
 [linux-surface](https://github.com/linux-surface/linux-surface):
 
 - **RGB camera (OV9734)** — a normal webcam in browsers and video-call
@@ -13,6 +14,8 @@ Both cameras working on the Microsoft Surface Laptop 2 under
 - **IR camera (OV7251) + IR emitter** — Windows Hello–style face unlock
   through [authFace](https://github.com/pfalkingham/authFace), includes
   new harnesses for the login screen.
+- **Ambient light sensor (ISL29018-family)** — reports lux to userspace,
+  so KDE can auto-adjust screen brightness.
 
 Every fix here was derived on real hardware Surface Laptop 2, kernel
 `6.19.8-surface-3`, Kubuntu, libcamera 0.7.0 (no promises it works on anything else, this is shared as is).
@@ -36,7 +39,7 @@ installed automatically.
 ```
 sudo bash install.sh        # stages 1+2, then asks you to reboot
 sudo reboot
-sudo bash install.sh        # resumes: libcamera (30-60 min), webcam, IR
+sudo bash install.sh        # resumes: libcamera (30-60 min), webcam, IR, ALS
 sudo bash scripts/camera-doctor.sh --capture
 ```
 
@@ -69,6 +72,25 @@ sudo bash scripts/setup-kde-login.sh      # verifies face auth, then patches PAM
 - Appears as **"Surface Camera"** in software and browsers.
 - Privacy LED should function as expected.
 
+### Ambient Light Sensor
+
+Installed by `install.sh`; run it alone with:
+
+```
+sudo bash scripts/als-enable.sh --with-auto-brightness   # driver + iio-sensor-proxy
+sudo bash scripts/als-diagnose.sh                        # read-only check
+monitor-sensor                                           # live lux, cover to test
+```
+
+- Firmware exposes the chip as ACPI `LSD9033` (`\_SB_.PCI0.I2C3.ALSD`),
+  which no in-tree driver matches — so nothing binds and no IIO device
+  appears. The fix is a DKMS build of `isl29018` with that ACPI ID added.
+- Maps to **`isl29023`, not `isl29035`**: register `0x0F` reads `0x00`
+  here, and the isl29035 path aborts with `-ENODEV` when it isn't `0x5`.
+- Auto brightness: **System Settings → Power Management → Adjust screen
+  brightness** (needs `iio-sensor-proxy`).
+- Undo: `sudo bash scripts/als-enable.sh --remove`.
+
 ## What gets installed
 
 | Component | What / why |
@@ -79,6 +101,7 @@ sudo bash scripts/setup-kde-login.sh      # verifies face auth, then patches PAM
 | Patched libcamera (held debs) | OV9734 gain helper + properties entry, plus four generic IPU3 fixes: display gamma, black level, an AWB channel swap, and an `abort()` that killed PipeWire. |
 | `/dev/video42` "Surface Camera" | RGB via v4l2loopback + on-demand watcher. Idle = black frames (device stays enumerable — Chromium rejects devices advertising Video Output caps); in use = live libcamera feed. |
 | `/dev/video43` "Surface IR Camera" + `camera-ir.service` | IR via a single write()-based producer. Sensor **and emitter** run only while an app holds the device; frames are rotated 180° and served as GREY, which is what authFace requires. |
+| DKMS `isl29018-lsd9033` | Stock `isl29018` light-sensor driver plus the `LSD9033` ACPI ID Microsoft used, mapped to the `isl29023` register map. Gives `/sys/bus/iio/devices/...` and lux to `iio-sensor-proxy`. |
 
 ## Settings
 
@@ -110,6 +133,7 @@ sudo bash scripts/camera-doctor.sh --capture   # RGB + kernel pipeline
 sudo bash scripts/camera-ir-diag.sh            # IR, mirrors authFace's access
 sudo bash scripts/camera-ir-snapshot.sh        # writes a viewable IR PNG
 journalctl -u camera-ir -b --no-pager | tail   # IR daemon decisions
+sudo bash scripts/als-diagnose.sh              # light sensor, read-only
 ```
 
 Common cases:
@@ -126,6 +150,9 @@ Common cases:
   `[0,1]` where slim-320 expects `(x-127)/128`, which depresses scores.
 - **Only one app at a time** — each sensor has one consumer; `qcam` and
   a browser (or two IR consumers) cannot stream simultaneously.
+- **No light sensor** — `als-diagnose.sh` reads the chip directly over
+  I2C and reports whether it responds. If it does but no IIO device
+  exists, the driver just is not bound: re-run `als-enable.sh`.
 
 
 ## Credits

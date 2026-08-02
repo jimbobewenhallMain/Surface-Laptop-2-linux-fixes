@@ -33,11 +33,12 @@ rm -f /etc/modules-load.d/v4l2loopback-surface.conf
 rm -f /etc/wireplumber/wireplumber.conf.d/99-disable-libcamera.conf
 systemctl daemon-reload
 
-for pv in $(dkms status 2>/dev/null | awk -F'[/,]' '/^(ipu3-camera-sl2|ov9734-surface)\//{print $1"/"$2}' | sort -u); do
+modprobe -r isl29018 2>/dev/null
+for pv in $(dkms status 2>/dev/null | awk -F'[/,]' '/^(ipu3-camera-sl2|ov9734-surface|isl29018-lsd9033)\//{print $1"/"$2}' | sort -u); do
     log "removing DKMS $pv"
     dkms remove "$pv" --all 2>/dev/null
 done
-rm -rf /usr/src/ipu3-camera-sl2-* /usr/src/ov9734-surface-2.0
+rm -rf /usr/src/ipu3-camera-sl2-* /usr/src/ov9734-surface-2.0 /usr/src/isl29018-lsd9033-*
 depmod -a
 
 log "unholding libcamera packages (apt will restore distro builds on next upgrade)"

@@ -77,6 +77,15 @@ else
     echo "[$TAG] run separately: sudo bash $DIR/scripts/setup-ir.sh"
 fi
 
+### stage 6: ambient light sensor #########################################
+log "stage 6: ambient light sensor"
+if bash "$DIR/scripts/als-enable.sh"; then
+    log "ALS bound (isl29018 + LSD9033 ACPI ID)"
+else
+    echo "[$TAG] WARN: ALS setup failed (non-fatal - cameras unaffected);"
+    echo "[$TAG] diagnose: sudo bash $DIR/scripts/als-diagnose.sh"
+fi
+
 ### done ###################################################################
 log "INSTALL COMPLETE"
 cat <<EOF

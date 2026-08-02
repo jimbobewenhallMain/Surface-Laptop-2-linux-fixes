@@ -1,7 +1,7 @@
 # Every bug found, with evidence
 
 > Jump to: [kernel](#kernel) · [libcamera](#libcamera-all-in-scriptsbuild-libcamerash)
-> · [integration](#integration) · [pitfalls in this project's own design](#pitfalls-in-this-projects-own-design)
+> · [integration](#integration) · [ambient light sensor](#ambient-light-sensor) · [pitfalls in this project's own design](#pitfalls-in-this-projects-own-design)
 
 Debugged on: Surface Laptop 2, linux-surface `6.19.8-surface-3`, Kubuntu
 (libcamera 0.7.0-1ubuntu2, pipewire 1.6.2). Each item lists the failure
@@ -168,6 +168,29 @@ single-frame grab and left the sensor off.
   producer attached at all times**: black `videotestsrc` frames when
   idle (sensor/LED off, device stays capture-only and enumerable),
   swapped for the libcamera feed by a watcher while an app captures.
+
+## Ambient light sensor
+
+### 12. Light sensor has a custom ACPI HID no driver matches
+- **Symptom**: no `/sys/bus/iio/devices` entry, nothing in KDE for
+  automatic brightness; `i2c-LSD9033:00` exists with no driver bound.
+- **Cause**: the chip is an Intersil ISL29018-family ALS at I2C 0x44
+  (`\_SB_.PCI0.I2C3.ALSD`), which `drivers/iio/light/isl29018.c` drives —
+  but Microsoft ships it under the ACPI HID **`LSD9033`**, and that
+  driver's `acpi_device_id` table lists only ISL29018/ISL29023/ISL29035.
+  No match, no bind.
+- **Fix**: DKMS build of the same driver with one added entry,
+  `{"LSD9033", isl29023}` (`scripts/als-enable.sh`).
+- **Why isl29023 and not isl29035**: register `0x0F` reads `0x00` on this
+  machine, so the chip has no ISL29035 device-ID register.
+  `isl29018_chip_init()` reads exactly that register in the isl29035 path
+  and returns `-ENODEV` unless it contains `0x5`, so the obvious mapping
+  fails at probe. The isl29023 register map is the one the chip answers
+  to — verified live before writing any driver: 918 counts in room light,
+  188 covered (≈14 lux vs ≈3 lux).
+- **Upstreamable**: a one-line addition benefiting every Surface Laptop
+  1/2, and it closes
+  [linux-surface#121](https://github.com/linux-surface/linux-surface/issues/121).
 
 ## Pitfalls in this project's own design
 
