@@ -1,7 +1,7 @@
 # surface-laptop-2-fixes
 
 ## AI Usage
-This entire package was written by Claude AI after lots of back and forth on my hardware. DO NOT blindly trust this code, it works on MY hardware with MY fresh kubuntu install
+This entire package was written by Claude AI after lots of back and forth on my hardware. DO NOT blindly trust this code, it works on MY hardware with MY fresh kubuntu install. With that in mind this repo will not be maintained, if you want to take it on and improve it be my guest.
 
 ## Basics
 
