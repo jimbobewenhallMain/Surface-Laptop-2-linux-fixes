@@ -1,26 +1,27 @@
-# surface-laptop2-camera-fix
+# surface-laptop-2-fixes
 
-Both cameras working on the Microsoft Surface Laptop 1/2 under
+## AI Usage
+This entire package was written by Claude AI after lots of back and forth on my hardware. DO NOT blindly trust this code, it works on MY hardware with MY fresh kubuntu install
+
+## Basics
+
+Both cameras working on the Microsoft Surface Laptop 2 under
 [linux-surface](https://github.com/linux-surface/linux-surface):
 
 - **RGB camera (OV9734)** — a normal webcam in browsers and video-call
   apps, no flags, with the privacy LED lit only while capturing.
 - **IR camera (OV7251) + IR emitter** — Windows Hello–style face unlock
-  through [authFace](https://github.com/pfalkingham/authFace), including
-  at the login screen.
+  through [authFace](https://github.com/pfalkingham/authFace), includes
+  new harnesses for the login screen.
 
-The linux-surface Camera-Support wiki lists the OV9734 as not working,
-and the IR emitter had only ever been driven on a Surface Go 2. Every
-fix here was derived on real hardware (Surface Laptop 2, kernel
-`6.19.8-surface-3`, Kubuntu, libcamera 0.7.0) from captured evidence —
-symbol-CRC dumps, ACPI SSDB decodes, kernel oopses, coredumps, and
-frame-level analysis. All of it is documented in [PATCHES.md](PATCHES.md).
+Every fix here was derived on real hardware Surface Laptop 2, kernel
+`6.19.8-surface-3`, Kubuntu, libcamera 0.7.0 (no promises it works on anything else, this is shared as is).
 
 ## Requirements
 
 | Requirement | Notes |
 |---|---|
-| Surface Laptop 1 or 2 | OV9734 RGB + OV7251 IR on the Intel IPU3 |
+| Surface Laptop 2 | OV9734 RGB + OV7251 IR on the Intel IPU3 |
 | [linux-surface](https://github.com/linux-surface/linux-surface) kernel | developed on 6.19.x; sources are fetched to match *your* running kernel, with vanilla fallback |
 | Kernel headers, `dkms`, `curl` | `sudo apt install dkms linux-headers-$(uname -r) curl` |
 | `v4l2loopback-dkms`, `v4l-utils`, `i2c-tools` | `sudo apt install v4l2loopback-dkms v4l-utils i2c-tools` |
@@ -41,8 +42,7 @@ sudo bash scripts/camera-doctor.sh --capture
 
 Re-running `install.sh` is always safe — finished stages are skipped.
 
-**RGB:** restart your browser and pick **"Surface Camera"**. Keep the
-experimental PipeWire-camera browser flags **off** (PATCHES.md #10).
+### IR Setup
 
 **IR face unlock** (needs authFace installed):
 
@@ -57,24 +57,17 @@ sudo -k && sudo true                      # emitter lights, no password
 ```
 sudo bash scripts/setup-kde-login.sh      # verifies face auth, then patches PAM
 ```
+### IR Info
 
-authFace's own installer only covers `sudo`, GDM and swaylock, so KDE
-gets nothing by default. This adds `sufficient` `pam_exec` entries to
-`sddm` and — on Plasma 6 — to the `kde-fingerprint` stack the lock
-screen runs in parallel with the password one.
+- **Usage**: pick your user, leave the password box **empty**, press Enter. Failure falls straight through to the password prompt.
+- **Safety**: Test it with a root TTY open (Ctrl+Alt+F3) as a safety net; `sudo bash scripts/setup-kde-login.sh --revert` undoes everything.
+- Full procedure and the password-fallback guarantee: **[LOGIN-SAFETY.md](LOGIN-SAFETY.md)**.
+- **Limitations**: KWallet is unlocked with your login password, so a face login leaves it locked and it will prompt separately; and **full-disk encryption** is unaffected.
 
-Usage: pick your user, leave the password box **empty**, press Enter.
-PAM only starts when the form is submitted, so Enter is what triggers
-the camera. Failure falls straight through to the password prompt.
+### RGB Info
 
-Test it with a root TTY open (Ctrl+Alt+F3) as a safety net;
-`sudo bash scripts/setup-kde-login.sh --revert` undoes everything.
-Full procedure and the password-fallback guarantee: **[LOGIN-SAFETY.md](LOGIN-SAFETY.md)**.
-
-Two limits, both inherent: **KWallet** is unlocked with your login
-password, so a face login leaves it locked and it will prompt
-separately; and **full-disk encryption** is unaffected, since that
-prompt happens pre-boot.
+- Appears as **"Surface Camera"** in software and browsers.
+- Privacy LED should function as expected.
 
 ## What gets installed
 
@@ -97,18 +90,6 @@ surface-camera-settings          # GUI
 surface-camera-settings --check  # report environment, change nothing
 ```
 
-Tabs for the IR camera (exposure, gain, emitter off-delay, rotation, and
-a live test capture), the RGB camera, face-login on/off, and an
-**Advanced (RGB)** tab that reads the real property list, ranges and
-defaults from `gst-inspect-1.0 libcamerasrc`, cross-checks them against
-what the camera actually implements (`cam --list-controls`), and offers
-only the controls that genuinely change the picture. It needs a Qt
-binding (`python3-pyqt6` or `python3-pyqt5`); nothing else.
-
-The GUI only ever writes the two config files below and restarts the
-affected service — it cannot touch the kernel modules, libcamera or the
-loopback devices.
-
 Everything is equally adjustable from the command line:
 
 ```
@@ -121,53 +102,6 @@ surface-camera-ctl rgb-controls "ae-enable=false exposure-time=20000"
 surface-camera-ctl face-login on|off
 surface-camera-ctl tune                  # IR exposure sweep
 ```
-
-It edits two plain files, which you can also change by hand:
-
-**`/etc/default/camera-ir`** (`sudo systemctl restart camera-ir` after)
-
-```
-IR_EXPOSURE=1200     # main brightness knob; 800≈mean 106, 1200≈mean 140
-IR_VBLANK=2000
-IR_GAIN=16           # 16 is the sensor minimum; raising it saturates fast
-IR_ROTATE=180        # sensor is mounted inverted; 0 disables
-IR_GRACE=8           # seconds sensor+emitter stay on after last use
-```
-
-**`/etc/default/camera-rgb`** (`systemctl --user restart camera-ondemand`)
-
-```
-RGB_GRACE=5          # seconds camera+privacy LED stay on after last use
-RGB_CONTROLS=""      # gstlibcamerasrc properties, e.g.
-                     #   ae-enable=false exposure-time=20000 analogue-gain=2.0
-```
-
-### What the IPU3 can and cannot be told to do
-
-The IPU3 IPA implements only five algorithms — auto exposure/gain, auto
-white balance (greyworld), black level, gamma and autofocus — so the
-runtime-adjustable set is small:
-
-| Adjustable at runtime | Not adjustable |
-|---|---|
-| `ae-enable`, `exposure-time`, `analogue-gain` | denoising / smoothing |
-| frame duration limits | sharpness, demosaic tuning |
-| autofocus controls (unused — no VCM here) | brightness, contrast, saturation |
-| | colour gains (AWB is greyworld) |
-
-The ImgU hardware *does* have bayer and temporal noise-reduction blocks
-and a sharpening/demosaic stage, but libcamera never programs them —
-upstream states this plainly in `src/ipa/ipu3/ipu3.cpp`, and they run at
-the kernel driver's defaults. Exposing them is a libcamera IPA patch and
-rebuild, not a setting. Gamma and black level are the same story (this
-project already patches those — PATCHES.md #9).
-
-An invalid property cannot break capture: the bridge notices the
-pipeline failing within two seconds and restarts without controls.
-
-Pick IR values with `surface-camera-ctl tune`, which sweeps exposure and
-writes a PGM per step. Aim for a mean of roughly 80–160: face detection
-fails on washed-out frames.
 
 ## Troubleshooting
 
@@ -193,16 +127,6 @@ Common cases:
 - **Only one app at a time** — each sensor has one consumer; `qcam` and
   a browser (or two IR consumers) cannot stream simultaneously.
 
-## Upstreaming
-
-Several fixes are not Surface-specific. The libcamera IPU3
-gamma/black-level/AGC fixes and the `abort()` in `imgu.cpp` affect every
-IPU3 machine; the browsers' PipeWire-camera crash on multi-plane buffers
-reproduces on any IPU3 laptop; and this is the first confirmation of the
-OV7251 strobe recipe on a Surface Laptop 2
-([linux-surface#739](https://github.com/linux-surface/linux-surface/issues/739)
-previously had it only on a Go 2). See [PATCHES.md](PATCHES.md) for
-submission-ready descriptions.
 
 ## Credits
 
